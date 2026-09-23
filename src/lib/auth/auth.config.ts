@@ -2,6 +2,7 @@ import NextAuth, { CredentialsSignin } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import { queryOne } from "@/lib/db/client";
 import { verifyPassword, createSession, touchSession } from "@/lib/auth/password";
+import { lookupConfirmationToken, consumeConfirmationToken } from "@/lib/auth/confirmation";
 
 /**
  * Auth.js v5, Credentials provider — replaces Supabase Auth (GoTrue).
@@ -16,6 +17,10 @@ export class InvalidCredentialsSignin extends CredentialsSignin {
 
 export class UnconfirmedEmailSignin extends CredentialsSignin {
   code = "unconfirmed-email";
+}
+
+export class InvalidConfirmationTokenSignin extends CredentialsSignin {
+  code = "invalid-confirmation-token";
 }
 
 type UserRow = {
@@ -47,8 +52,33 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         // created, so a non-admin credential is rejected up front rather
         // than after signing in (specs/007-admin-login).
         loginContext: {},
+        // Present only for the post-email-confirmation auto-sign-in
+        // (013-email-confirmation) — mutually exclusive with email/password.
+        confirmationToken: {},
       },
       async authorize(credentials) {
+        const confirmationToken = credentials?.confirmationToken
+          ? String(credentials.confirmationToken)
+          : null;
+
+        if (confirmationToken) {
+          const lookup = await lookupConfirmationToken(confirmationToken);
+          if (!lookup.valid) {
+            throw new InvalidConfirmationTokenSignin();
+          }
+
+          const user = await queryOne<UserRow>(
+            `select id, email, password_hash, email_verified from users where id = $1`,
+            [lookup.userId]
+          );
+          if (!user) {
+            throw new InvalidConfirmationTokenSignin();
+          }
+
+          await consumeConfirmationToken(confirmationToken, user.id);
+          return { id: user.id, email: user.email, isAdmin: await isAdminUser(user.id) };
+        }
+
         const email = String(credentials?.email ?? "")
           .trim()
           .toLowerCase();
