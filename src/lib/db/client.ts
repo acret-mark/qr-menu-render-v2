@@ -14,13 +14,27 @@ import { Pool, type QueryResultRow } from "pg";
  */
 const globalForDb = globalThis as unknown as { pgPool?: Pool };
 
+function isLocalHost(connectionString: string): boolean {
+  try {
+    const { hostname } = new URL(connectionString);
+    return hostname === "localhost" || hostname === "127.0.0.1";
+  } catch {
+    return false;
+  }
+}
+
 export function getPool(): Pool {
   if (!globalForDb.pgPool) {
     const connectionString = process.env.DATABASE_URL;
     if (!connectionString) {
       throw new Error("DATABASE_URL is not set.");
     }
-    globalForDb.pgPool = new Pool({ connectionString });
+    // Render Postgres requires SSL on external connections but signs with a
+    // CA not in Node's default trust store — rejectUnauthorized: false is
+    // Render's own documented workaround (the connection is still
+    // encrypted, just not chain-verified). Skipped for a local dev database.
+    const ssl = isLocalHost(connectionString) ? undefined : { rejectUnauthorized: false };
+    globalForDb.pgPool = new Pool({ connectionString, ssl });
   }
   return globalForDb.pgPool;
 }

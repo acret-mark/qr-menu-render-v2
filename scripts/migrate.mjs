@@ -22,7 +22,11 @@ async function main() {
     process.exit(1);
   }
 
-  const pool = new pg.Pool({ connectionString: databaseUrl });
+  const isLocalHost = ["localhost", "127.0.0.1"].includes(new URL(databaseUrl).hostname);
+  // Render Postgres requires SSL on external connections; see the same note
+  // in src/lib/db/client.ts.
+  const ssl = isLocalHost ? undefined : { rejectUnauthorized: false };
+  const pool = new pg.Pool({ connectionString: databaseUrl, ssl });
   const client = await pool.connect();
 
   try {
