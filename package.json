@@ -8,7 +8,8 @@
     "start": "next start",
     "lint": "eslint",
     "typecheck": "tsc --noEmit",
-    "migrate": "node scripts/migrate.mjs"
+    "migrate": "node scripts/migrate.mjs",
+    "seed": "node scripts/seed.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.6.0",
