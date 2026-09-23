@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { requireAdmin } from "@/lib/auth/admin";
+import { AdminShell } from "@/components/admin/admin-shell";
 
 /**
  * requireAdmin() guard for every route nested under this group
@@ -18,5 +19,5 @@ export default async function AdminProtectedLayout({
     redirect("/admin/login");
   }
 
-  return <>{children}</>;
+  return <AdminShell>{children}</AdminShell>;
 }

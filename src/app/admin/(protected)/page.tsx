@@ -1,16 +1,121 @@
-import { requireAdmin } from "@/lib/auth/admin";
+import Link from "next/link";
+import { getBusinessList } from "@/lib/admin/queries";
+import { StatusBadge } from "@/components/admin/status-badge";
+import { StatCard } from "@/components/admin/stat-card";
+
+function formatCreatedDate(iso: string) {
+  return new Date(iso).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
+}
 
 /**
- * Placeholder landing page proving the requireAdmin() guard end-to-end
- * (specs/007-admin-login). Real content is 008-business-list.
+ * Business List (008-business-list) — also this app's admin index page,
+ * mirroring qr-menu-dev's own layout (there is no separate /admin/businesses
+ * route; this IS "/admin").
  */
-export default async function AdminHomePage() {
-  const admin = await requireAdmin();
+export default async function BusinessListPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string }>;
+}) {
+  const { q } = await searchParams;
+  const businesses = await getBusinessList();
+
+  // Stats always reflect every business, regardless of the search box above
+  // (AdminShell) — only the table rows below are filtered.
+  const total = businesses.length;
+  const active = businesses.filter((b) => b.status === "active").length;
+  const trial = businesses.filter((b) => b.status === "trial").length;
+  const needsAttention = businesses.filter(
+    (b) => b.status === "trial" || b.status === "pending"
+  ).length;
+  const expired = businesses.filter((b) => b.locked).length;
+
+  const trimmedQuery = q?.trim() ?? "";
+  const filteredBusinesses = trimmedQuery
+    ? businesses.filter((business) =>
+        business.name.toLowerCase().includes(trimmedQuery.toLowerCase())
+      )
+    : businesses;
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-2 p-8">
-      <h1 className="font-heading text-2xl font-semibold">Admin panel</h1>
-      <p className="text-muted-foreground">Signed in as {admin?.email}.</p>
-    </main>
+    <div className="mx-auto flex w-full max-w-[1200px] flex-col gap-6">
+      <div>
+        <h1 className="font-heading text-2xl font-semibold">Businesses</h1>
+        <p className="text-sm text-muted-foreground">All registered Hapag accounts.</p>
+      </div>
+
+      <div className="grid grid-cols-5 gap-4">
+        <StatCard label="Total Businesses" value={total} />
+        <StatCard label="Active" value={active} />
+        <StatCard label="On Trial" value={trial} />
+        <StatCard label="Needs Attention" value={needsAttention} />
+        <StatCard label="Expired" value={expired} />
+      </div>
+
+      <div className="overflow-hidden rounded-2xl border border-border bg-card">
+        {businesses.length === 0 ? (
+          <p className="px-6 py-10 text-center text-sm text-muted-foreground">
+            No businesses registered yet.
+          </p>
+        ) : filteredBusinesses.length === 0 ? (
+          <p className="px-6 py-10 text-center text-sm text-muted-foreground">
+            No businesses match &ldquo;{trimmedQuery}&rdquo;.
+          </p>
+        ) : (
+          <table className="w-full text-sm">
+            <thead>
+              <tr className="border-b border-border text-left text-muted-foreground">
+                <th className="px-5 py-3 font-medium">Business</th>
+                <th className="px-5 py-3 font-medium">Plan</th>
+                <th className="px-5 py-3 font-medium">Status</th>
+                <th className="px-5 py-3 font-medium">Signed Up</th>
+              </tr>
+            </thead>
+            <tbody>
+              {filteredBusinesses.map((business) => {
+                const href = `/admin/businesses/${business.id}`;
+                return (
+                  <tr
+                    key={business.id}
+                    className="border-b border-border last:border-none hover:bg-muted"
+                  >
+                    <td className="p-0">
+                      <Link href={href} className="block px-5 py-3.5">
+                        {business.name}
+                      </Link>
+                    </td>
+                    <td className="p-0">
+                      <Link href={href} className="block px-5 py-3.5 capitalize">
+                        {business.plan}
+                      </Link>
+                    </td>
+                    <td className="p-0">
+                      <Link href={href} className="block px-5 py-3.5">
+                        {business.locked ? (
+                          <span className="inline-flex items-center rounded-full bg-destructive/15 px-2.5 py-0.5 text-xs font-medium text-destructive">
+                            Expired
+                          </span>
+                        ) : (
+                          <StatusBadge status={business.status} />
+                        )}
+                      </Link>
+                    </td>
+                    <td className="p-0">
+                      <Link href={href} className="block px-5 py-3.5">
+                        {formatCreatedDate(business.createdAt)}
+                      </Link>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        )}
+      </div>
+    </div>
   );
 }
