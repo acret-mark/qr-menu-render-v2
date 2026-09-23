@@ -6,9 +6,9 @@ import { MaybeLink } from "@/components/dashboard/maybe-link";
 // 020-qr-code-generation don't exist yet at this point in the replan — see
 // owner-tab-bar.tsx's identical convention. Flips to true, with nothing
 // else in this file changing, when each is implemented.
-const CATEGORIES_ENABLED = false;
-const MENU_ENABLED = false;
-const QR_ENABLED = false;
+const CATEGORIES_ENABLED = true;
+const MENU_ENABLED = true;
+const QR_ENABLED = true;
 const SUBSCRIPTION_ENABLED = false;
 
 function getManilaHour(date: Date): number {
