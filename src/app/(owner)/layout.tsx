@@ -7,11 +7,7 @@ import {
   SUSPENDED_PATH,
   ERROR_PATH,
 } from "@/lib/auth/login";
-
-const BANNER_COPY: Record<"pending" | "trial", string> = {
-  pending: "Awaiting payment verification.",
-  trial: "You're on a free trial — add a plan to keep access.",
-};
+import { OwnerShell } from "@/components/dashboard/owner-shell";
 
 /**
  * requireOwnerBusiness() guard (012-owner-login,
@@ -34,18 +30,9 @@ export default async function OwnerLayout({ children }: { children: React.ReactN
     redirect(SUSPENDED_PATH);
   }
 
-  const banner = business.status === "pending" || business.status === "trial"
-    ? BANNER_COPY[business.status]
-    : null;
-
   return (
-    <>
-      {banner && (
-        <div className="bg-warning px-4 py-2 text-center text-sm text-warning-foreground">
-          {banner}
-        </div>
-      )}
+    <OwnerShell status={business.status} businessName={business.name}>
       {children}
-    </>
+    </OwnerShell>
   );
 }
