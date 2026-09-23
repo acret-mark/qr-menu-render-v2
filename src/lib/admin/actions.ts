@@ -3,7 +3,7 @@
 import { auth } from "@/lib/auth/auth.config";
 import { query, queryOne } from "@/lib/db/client";
 import { sendActivationConfirmation } from "@/lib/email/send-activation-confirmation";
-import type { PlanType } from "./types";
+import type { PlanType, TicketStatus } from "./types";
 
 export type ActivateSubscriptionInput = {
   subscriptionId: string;
@@ -86,5 +86,67 @@ export async function rejectSubscription(input: {
     return { ok: true };
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : "reject-failed" };
+  }
+}
+
+export type ReplyToSupportTicketResult = { ok: true } | { ok: false; reason: "empty-reply" | string };
+
+/**
+ * Writes the ticket's single admin reply, overwriting any previous one in
+ * place — the schema holds exactly one admin_reply/replied_at pair, never a
+ * thread (FR-007). Defaults status to "resolved" unless the caller passes
+ * an explicit override (FR-009) — the admin's status control, if set to
+ * something else at send time, wins over this default.
+ */
+export async function replyToSupportTicket(input: {
+  ticketId: string;
+  reply: string;
+  status?: TicketStatus;
+}): Promise<ReplyToSupportTicketResult> {
+  const session = await auth();
+  if (!session?.user?.isAdmin) {
+    return { ok: false, reason: "not-authenticated" };
+  }
+
+  const reply = input.reply.trim();
+  if (!reply) {
+    return { ok: false, reason: "empty-reply" };
+  }
+
+  try {
+    await query(
+      `update support_tickets set admin_reply = $1, replied_at = now(), status = $2 where id = $3`,
+      [reply, input.status ?? "resolved", input.ticketId]
+    );
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : "reply-failed" };
+  }
+}
+
+export type SetTicketStatusResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * Status-only update — never touches admin_reply/replied_at (FR-011).
+ * Independent of replyToSupportTicket(): usable at any time, e.g. to mark
+ * in_progress before any reply exists, or to reopen a resolved ticket.
+ */
+export async function setTicketStatus(input: {
+  ticketId: string;
+  status: TicketStatus;
+}): Promise<SetTicketStatusResult> {
+  const session = await auth();
+  if (!session?.user?.isAdmin) {
+    return { ok: false, reason: "not-authenticated" };
+  }
+
+  try {
+    await query(`update support_tickets set status = $1 where id = $2`, [
+      input.status,
+      input.ticketId,
+    ]);
+    return { ok: true };
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : "status-update-failed" };
   }
 }

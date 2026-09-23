@@ -6,6 +6,7 @@ import type {
   AdminPendingPayment,
   AdminPendingPaymentDetail,
   AdminSubscriptionRecord,
+  AdminSupportTicket,
 } from "./types";
 
 /**
@@ -235,6 +236,47 @@ export async function getPendingPaymentById(id: string): Promise<AdminPendingPay
     startsAt: row.starts_at,
     expiresAt: row.expires_at,
   };
+}
+
+/**
+ * Every support ticket, across all businesses, for the Support Tickets
+ * inbox (012-support-ticket-management). Ordered NEWEST-FIRST — a triage
+ * inbox, not a FIFO work queue like getPendingPayments(). Filtering/sorting
+ * by status happens client-side against this full set (pilot-scale ticket
+ * volume) — see components/admin/support-inbox.tsx.
+ */
+export async function getSupportTickets(): Promise<AdminSupportTicket[]> {
+  const rows = await query<{
+    id: string;
+    business_id: string;
+    business_name: string;
+    business_email: string | null;
+    subject: string;
+    message: string;
+    status: AdminSupportTicket["status"];
+    admin_reply: string | null;
+    replied_at: string | null;
+    created_at: string;
+  }>(`
+    select t.id, t.business_id, b.name as business_name, b.contact_email as business_email,
+           t.subject, t.message, t.status, t.admin_reply, t.replied_at, t.created_at
+      from support_tickets t
+      join businesses b on b.id = t.business_id
+      order by t.created_at desc
+  `);
+
+  return rows.map((row) => ({
+    id: row.id,
+    businessId: row.business_id,
+    businessName: row.business_name,
+    businessEmail: row.business_email,
+    subject: row.subject,
+    message: row.message,
+    status: row.status,
+    adminReply: row.admin_reply,
+    repliedAt: row.replied_at,
+    createdAt: row.created_at,
+  }));
 }
 
 export async function hasOpenSupportTicket(businessId: string): Promise<boolean> {

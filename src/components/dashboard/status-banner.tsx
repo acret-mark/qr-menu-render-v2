@@ -9,8 +9,7 @@ const BANNER_TEXT: Record<"pending" | "trial", string> = {
   trial: "You're on a free trial — add a plan to keep access.",
 };
 
-// 021-owner-subscription-tab doesn't exist yet at this point in the replan.
-const SUBSCRIPTION_SCREEN_ENABLED = false;
+const SUBSCRIPTION_SCREEN_ENABLED = true;
 const SUBSCRIPTION_PATH = "/business-profile#subscription";
 
 export function StatusBanner({ status }: { status: "pending" | "trial" }) {

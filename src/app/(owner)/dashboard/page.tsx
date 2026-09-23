@@ -2,14 +2,10 @@ import { auth } from "@/lib/auth/auth.config";
 import { getDashboardStats } from "@/lib/business/dashboard-stats";
 import { MaybeLink } from "@/components/dashboard/maybe-link";
 
-// 017-category-manager, 018/019-menu-item-list/add-edit-item, and
-// 020-qr-code-generation don't exist yet at this point in the replan — see
-// owner-tab-bar.tsx's identical convention. Flips to true, with nothing
-// else in this file changing, when each is implemented.
 const CATEGORIES_ENABLED = true;
 const MENU_ENABLED = true;
 const QR_ENABLED = true;
-const SUBSCRIPTION_ENABLED = false;
+const SUBSCRIPTION_ENABLED = true;
 
 function getManilaHour(date: Date): number {
   return Number(

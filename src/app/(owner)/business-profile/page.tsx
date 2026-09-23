@@ -1,18 +1,27 @@
 import { auth } from "@/lib/auth/auth.config";
+import { getBusinessProfile } from "@/lib/business/profile";
+import { BusinessProfilePanel } from "@/components/business/business-profile-panel";
+import { AccountTabs } from "@/components/business/account-tabs";
+import { SubscriptionPanel } from "@/components/subscription/subscription-panel";
+import { SupportPanel } from "@/components/support/support-panel";
 
 /**
- * Minimal placeholder — real content is 015-business-profile-editing.
- * Exists here only so 013-email-confirmation's post-confirmation redirect
- * (FR-005) has somewhere real, guarded, to land, distinct from the
- * dashboard.
+ * The shared Profile / Subscription / Support tab shell
+ * (015-business-profile-editing, 021-owner-subscription-tab,
+ * 022-owner-support-tab). Replaces the placeholder 013-email-confirmation
+ * introduced as its post-confirmation redirect target.
  */
 export default async function BusinessProfilePage() {
   const session = await auth();
+  // The (owner) layout already guarantees a signed-in user with a valid
+  // business row before this page renders.
+  const profile = await getBusinessProfile(session!.user!.id);
 
   return (
-    <main className="flex min-h-screen flex-col items-center justify-center gap-2 p-8 text-center">
-      <h1 className="font-heading text-2xl font-semibold">Set up your business</h1>
-      <p className="text-muted-foreground">Signed in as {session?.user?.email}.</p>
-    </main>
+    <AccountTabs
+      profilePanel={<BusinessProfilePanel initialProfile={profile!} />}
+      subscriptionPanel={<SubscriptionPanel />}
+      supportPanel={<SupportPanel />}
+    />
   );
 }
