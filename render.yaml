@@ -1,0 +1,80 @@
+# Paid target deployment — see reference/render-and-authjs-replacement.md and
+# reference/render-free-tier-limitations.md for why this is the target config
+# rather than a free-tier one: cron requires a paid plan, and outbound SMTP
+# is blocked on free web services.
+databases:
+  - name: hapag-db
+    plan: basic-256mb
+    region: singapore
+    postgresMajorVersion: "17"
+
+services:
+  - type: web
+    name: hapag-web
+    runtime: node
+    plan: starter
+    region: singapore
+    buildCommand: npm ci && npm run build
+    startCommand: npm run migrate && npm run start
+    healthCheckPath: /
+    envVars:
+      - key: DATABASE_URL
+        fromDatabase:
+          name: hapag-db
+          property: connectionString
+      - key: AUTH_SECRET
+        sync: false
+      - key: CLOUDINARY_CLOUD_NAME
+        sync: false
+      - key: CLOUDINARY_API_KEY
+        sync: false
+      - key: CLOUDINARY_API_SECRET
+        sync: false
+      - key: GMAIL_SMTP_USER
+        sync: false
+      - key: GMAIL_SMTP_APP_PASSWORD
+        sync: false
+      - key: GEMINI_API_KEY
+        sync: false
+      - key: ANTHROPIC_API_KEY
+        sync: false
+      - key: DEEPL_API_KEY
+        sync: false
+      - key: CRON_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+      - key: NODE_VERSION
+        value: "20"
+
+  - type: cron
+    name: payment-reminders
+    runtime: node
+    plan: starter
+    region: singapore
+    schedule: "0 9 * * *"
+    buildCommand: npm ci && npm run build
+    startCommand: >-
+      curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET"
+      "$NEXT_PUBLIC_SITE_URL/api/cron/payment-reminders"
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
+
+  - type: cron
+    name: subscription-expiry
+    runtime: node
+    plan: starter
+    region: singapore
+    schedule: "0 9 * * *"
+    buildCommand: npm ci && npm run build
+    startCommand: >-
+      curl -sf -X POST -H "Authorization: Bearer $CRON_SECRET"
+      "$NEXT_PUBLIC_SITE_URL/api/cron/subscription-expiry"
+    envVars:
+      - key: CRON_SECRET
+        sync: false
+      - key: NEXT_PUBLIC_SITE_URL
+        sync: false
