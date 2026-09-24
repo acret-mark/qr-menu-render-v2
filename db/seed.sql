@@ -17,6 +17,7 @@ insert into users (id, email, password_hash, email_verified) values
   ('22222222-2222-2222-2222-222222222222', 'owner-pro@seed.hapag.ph', crypt('password123', gen_salt('bf')), now()),
   ('33333333-3333-3333-3333-333333333333', 'owner-pending@seed.hapag.ph', crypt('password123', gen_salt('bf')), now()),
   ('44444444-4444-4444-4444-444444444444', 'owner-suspended@seed.hapag.ph', crypt('password123', gen_salt('bf')), now()),
+  ('55555555-5555-5555-5555-555555555555', 'owner-demo@seed.hapag.ph', crypt('password123', gen_salt('bf')), now()),
   ('99999999-9999-9999-9999-999999999999', 'admin@seed.hapag.ph', crypt('password123', gen_salt('bf')), now());
 
 -- ============================================================
@@ -34,7 +35,12 @@ insert into businesses (id, name, slug, logo_url, contact_phone, contact_email, 
   ('b1111111-0000-0000-0000-000000000001', 'Kubo Kitchen', 'kubo-kitchen', null, '+63 917 111 1111', 'owner-standard@seed.hapag.ph', 'Quezon City, Metro Manila', '11111111-1111-1111-1111-111111111111', 'standard', 'active', 'en'),
   ('b2222222-0000-0000-0000-000000000002', 'Manila Meze', 'manila-meze', null, '+63 917 222 2222', 'owner-pro@seed.hapag.ph', 'Makati, Metro Manila', '22222222-2222-2222-2222-222222222222', 'pro', 'active', 'en'),
   ('b3333333-0000-0000-0000-000000000003', 'Isla Grill', 'isla-grill', null, '+63 917 333 3333', 'owner-pending@seed.hapag.ph', 'Cebu City, Cebu', '33333333-3333-3333-3333-333333333333', 'standard', 'pending', 'en'),
-  ('b4444444-0000-0000-0000-000000000004', 'Barrio Bites', 'barrio-bites', null, '+63 917 444 4444', 'owner-suspended@seed.hapag.ph', 'Davao City, Davao', '44444444-4444-4444-4444-444444444444', 'standard', 'suspended', 'en');
+  ('b4444444-0000-0000-0000-000000000004', 'Barrio Bites', 'barrio-bites', null, '+63 917 444 4444', 'owner-suspended@seed.hapag.ph', 'Davao City, Davao', '44444444-4444-4444-4444-444444444444', 'standard', 'suspended', 'en'),
+  -- Public demo business linked from the marketing homepage's "See it in
+  -- action" CTA and /demo (specs/025-marketing-homepage FR-006/FR-008) —
+  -- must stay 'active'/'pro' so the live public menu it links to always
+  -- resolves, never the inactive-menu fallback.
+  ('b5555555-0000-0000-0000-000000000005', 'Hapag Demo Cafe', 'hapag-demo', null, '+63 917 555 5555', 'owner-demo@seed.hapag.ph', 'Taguig City, Metro Manila', '55555555-5555-5555-5555-555555555555', 'pro', 'active', 'en');
 
 -- ============================================================
 -- categories
@@ -46,7 +52,9 @@ insert into categories (id, business_id, name, sort_order) values
   ('c1111111-0000-0000-0000-000000000003', 'b1111111-0000-0000-0000-000000000001', 'Drinks', 2),
   ('c2222222-0000-0000-0000-000000000001', 'b2222222-0000-0000-0000-000000000002', 'Mezze', 0),
   ('c2222222-0000-0000-0000-000000000002', 'b2222222-0000-0000-0000-000000000002', 'Grills', 1),
-  ('c2222222-0000-0000-0000-000000000003', 'b2222222-0000-0000-0000-000000000002', 'Desserts', 2);
+  ('c2222222-0000-0000-0000-000000000003', 'b2222222-0000-0000-0000-000000000002', 'Desserts', 2),
+  ('c5555555-0000-0000-0000-000000000001', 'b5555555-0000-0000-0000-000000000005', 'Rice Bowls', 0),
+  ('c5555555-0000-0000-0000-000000000002', 'b5555555-0000-0000-0000-000000000005', 'Drinks', 1);
 
 -- ============================================================
 -- items
@@ -60,7 +68,11 @@ insert into items (id, category_id, business_id, name, description, description_
   ('d1111111-0000-0000-0000-000000000005', 'c1111111-0000-0000-0000-000000000003', 'b1111111-0000-0000-0000-000000000001', 'Buko Shake', 'Fresh young coconut shake', 'manual', 99.00, null, false, false, false, 0),
   ('d2222222-0000-0000-0000-000000000001', 'c2222222-0000-0000-0000-000000000001', 'b2222222-0000-0000-0000-000000000002', 'Hummus Platter', 'Chickpea dip, olive oil, warm pita', 'ai_generated', 220.00, null, true, false, true, 0),
   ('d2222222-0000-0000-0000-000000000002', 'c2222222-0000-0000-0000-000000000002', 'b2222222-0000-0000-0000-000000000002', 'Lamb Kofta', 'Grilled spiced lamb skewers', 'ai_generated', 380.00, null, true, false, true, 0),
-  ('d2222222-0000-0000-0000-000000000003', 'c2222222-0000-0000-0000-000000000002', 'b2222222-0000-0000-0000-000000000002', 'Chicken Shawarma', 'Marinated chicken, garlic sauce', 'manual', 260.00, null, true, true, false, 1);
+  ('d2222222-0000-0000-0000-000000000003', 'c2222222-0000-0000-0000-000000000002', 'b2222222-0000-0000-0000-000000000002', 'Chicken Shawarma', 'Marinated chicken, garlic sauce', 'manual', 260.00, null, true, true, false, 1),
+  ('d5555555-0000-0000-0000-000000000001', 'c5555555-0000-0000-0000-000000000001', 'b5555555-0000-0000-0000-000000000005', 'Chicken Adobo Rice Bowl', 'Braised chicken adobo over garlic rice', 'manual', 189.00, null, true, false, true, 0),
+  ('d5555555-0000-0000-0000-000000000002', 'c5555555-0000-0000-0000-000000000001', 'b5555555-0000-0000-0000-000000000005', 'Beef Tapa Rice Bowl', 'Marinated beef tapa, fried egg, garlic rice', 'manual', 209.00, null, true, false, false, 1),
+  ('d5555555-0000-0000-0000-000000000003', 'c5555555-0000-0000-0000-000000000001', 'b5555555-0000-0000-0000-000000000005', 'Crispy Sisig Bowl', 'Chopped crispy pork sisig, egg, garlic rice', 'manual', 219.00, null, true, true, false, 2),
+  ('d5555555-0000-0000-0000-000000000004', 'c5555555-0000-0000-0000-000000000002', 'b5555555-0000-0000-0000-000000000005', 'Iced Calamansi Juice', 'Fresh-squeezed calamansi, lightly sweetened', 'manual', 79.00, null, true, false, false, 0);
 
 -- ============================================================
 -- category_translations / item_translations — Manila Meze only (pro)
@@ -96,7 +108,8 @@ insert into subscriptions (id, business_id, plan, amount, status, payment_method
   ('e1111111-0000-0000-0000-000000000001', 'b1111111-0000-0000-0000-000000000001', 'standard', 299.00, 'active', 'gcash', 'https://res.cloudinary.com/seed/proof-1.jpg', '99999999-9999-9999-9999-999999999999', now() - interval '15 days', now() - interval '15 days', now() + interval '15 days'),
   ('e2222222-0000-0000-0000-000000000002', 'b2222222-0000-0000-0000-000000000002', 'pro', 399.00, 'active', 'bank_transfer', 'https://res.cloudinary.com/seed/proof-2.jpg', '99999999-9999-9999-9999-999999999999', now() - interval '5 days', now() - interval '5 days', now() + interval '25 days'),
   ('e3333333-0000-0000-0000-000000000003', 'b3333333-0000-0000-0000-000000000003', 'standard', 299.00, 'pending', 'gcash', 'https://res.cloudinary.com/seed/proof-3.jpg', null, null, null, null),
-  ('e4444444-0000-0000-0000-000000000004', 'b4444444-0000-0000-0000-000000000004', 'standard', 299.00, 'expired', 'bank_transfer', 'https://res.cloudinary.com/seed/proof-4.jpg', '99999999-9999-9999-9999-999999999999', now() - interval '45 days', now() - interval '45 days', now() - interval '15 days');
+  ('e4444444-0000-0000-0000-000000000004', 'b4444444-0000-0000-0000-000000000004', 'standard', 299.00, 'expired', 'bank_transfer', 'https://res.cloudinary.com/seed/proof-4.jpg', '99999999-9999-9999-9999-999999999999', now() - interval '45 days', now() - interval '45 days', now() - interval '15 days'),
+  ('e5555555-0000-0000-0000-000000000005', 'b5555555-0000-0000-0000-000000000005', 'pro', 399.00, 'active', 'bank_transfer', 'https://res.cloudinary.com/seed/proof-5.jpg', '99999999-9999-9999-9999-999999999999', now() - interval '10 days', now() - interval '10 days', now() + interval '355 days');
 
 -- ============================================================
 -- support_tickets — open, in_progress, resolved-with-reply
