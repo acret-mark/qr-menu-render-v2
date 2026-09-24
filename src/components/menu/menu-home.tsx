@@ -8,6 +8,7 @@ import { CategoryTabs } from "./category-tabs";
 import { ItemCard } from "./item-card";
 import { ItemDetailSheet } from "./item-detail-sheet";
 import { LanguageSelector } from "./language-selector";
+import { OfflineIndicator } from "./offline-indicator";
 import { TranslationUnavailableBanner } from "./translation-unavailable-banner";
 import { useTranslatedCategories } from "@/lib/menu/use-translated-categories";
 import { useMenuUrlState } from "@/lib/menu/use-menu-url-state";
@@ -83,6 +84,7 @@ export function MenuHome({
 
   return (
     <>
+      <OfflineIndicator />
       {translationUnavailable && <TranslationUnavailableBanner />}
       {/* Full-bleed hero + rounded-overlap identity panel. Background is
           dynamic per business: a business with a logo uploaded shows that
