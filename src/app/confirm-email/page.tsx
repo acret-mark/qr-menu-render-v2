@@ -1,5 +1,12 @@
+import type { Metadata } from "next";
 import Link from "next/link";
 import { ResendConfirmationButton } from "@/components/auth/resend-confirmation-button";
+
+// Auth pages are functional-only and never meant to surface in search
+// results (specs/033 FR-009).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function ConfirmEmailPage({
   searchParams,

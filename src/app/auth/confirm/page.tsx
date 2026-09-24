@@ -1,4 +1,11 @@
+import type { Metadata } from "next";
 import { ConfirmAccount } from "@/components/auth/confirm-account";
+
+// Auth pages are functional-only and never meant to surface in search
+// results (specs/033 FR-009).
+export const metadata: Metadata = {
+  robots: { index: false, follow: false },
+};
 
 export default async function AuthConfirmPage({
   searchParams,
