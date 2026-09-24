@@ -2,6 +2,7 @@
 
 import { auth } from "@/lib/auth/auth.config";
 import { query, queryOne } from "@/lib/db/client";
+import { invalidateMenuCache } from "@/lib/menu/cache";
 import { DISPLAY_LANGUAGES, type DisplayLanguage, type SourceLanguage } from "@/lib/menu/types";
 import { hashCategoryName } from "./hash";
 import { translateText } from "@/lib/deepl/client";
@@ -94,8 +95,8 @@ export async function saveCategory(input: SaveCategoryInput): Promise<SaveCatego
     return { ok: false, reason: "not-authenticated" };
   }
 
-  const business = await queryOne<{ id: string; source_language: SourceLanguage }>(
-    `select id, source_language from businesses where owner_id = $1`,
+  const business = await queryOne<{ id: string; slug: string; source_language: SourceLanguage }>(
+    `select id, slug, source_language from businesses where owner_id = $1`,
     [session.user.id]
   );
   if (!business) {
@@ -118,6 +119,8 @@ export async function saveCategory(input: SaveCategoryInput): Promise<SaveCatego
       data.name,
       business.source_language
     );
+
+    invalidateMenuCache(business.slug);
 
     return {
       ok: true,
@@ -153,6 +156,8 @@ export async function saveCategory(input: SaveCategoryInput): Promise<SaveCatego
     business.source_language
   );
 
+  invalidateMenuCache(business.slug);
+
   return {
     ok: true,
     category: {
@@ -177,8 +182,8 @@ export async function deleteCategory(input: DeleteCategoryInput): Promise<Delete
     return { ok: false, reason: "not-authenticated" };
   }
 
-  const business = await queryOne<{ id: string }>(
-    `select id from businesses where owner_id = $1`,
+  const business = await queryOne<{ id: string; slug: string }>(
+    `select id, slug from businesses where owner_id = $1`,
     [session.user.id]
   );
   if (!business) {
@@ -186,6 +191,8 @@ export async function deleteCategory(input: DeleteCategoryInput): Promise<Delete
   }
 
   await query(`delete from categories where id = $1 and business_id = $2`, [input.id, business.id]);
+
+  invalidateMenuCache(business.slug);
 
   return { ok: true };
 }
@@ -205,8 +212,8 @@ export async function reorderCategory(
     return { ok: false, reason: "not-authenticated" };
   }
 
-  const business = await queryOne<{ id: string }>(
-    `select id from businesses where owner_id = $1`,
+  const business = await queryOne<{ id: string; slug: string }>(
+    `select id, slug from businesses where owner_id = $1`,
     [session.user.id]
   );
   if (!business) {
@@ -243,6 +250,8 @@ export async function reorderCategory(
       business.id,
     ]),
   ]);
+
+  invalidateMenuCache(business.slug);
 
   return { ok: true };
 }

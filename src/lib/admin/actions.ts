@@ -2,6 +2,7 @@
 
 import { auth } from "@/lib/auth/auth.config";
 import { query, queryOne } from "@/lib/db/client";
+import { invalidateMenuCache } from "@/lib/menu/cache";
 import { sendActivationConfirmation } from "@/lib/email/send-activation-confirmation";
 import type { PlanType, TicketStatus } from "./types";
 
@@ -23,9 +24,12 @@ export type ActivateSubscriptionResult =
  * (db/migrations/0002_subscription_functions.sql — ported from
  * qr-menu-dev's security-definer RPC, with its internal is_admin() guard
  * dropped per Constitution Principle I v3.0.0: the admin check below,
- * before this function is ever called, is now the sole guard). Cache
- * invalidation (specs/016-menu-data-caching) doesn't exist yet on this
- * stack — deliberately omitted here, to be added when that spec lands.
+ * before this function is ever called, is now the sole guard). Flips
+ * businesses.status to 'active' (specs/005-inactive-menu-state), so the
+ * public menu's cache must be invalidated for the affected business
+ * (specs/016-menu-data-caching FR-009) — the function itself only returns
+ * business_id, so one extra lookup resolves the slug invalidateMenuCache
+ * needs.
  */
 export async function activateSubscription(
   input: ActivateSubscriptionInput
@@ -51,6 +55,14 @@ export async function activateSubscription(
   // non-pending. Safe no-op per FR-007: no email, no error.
   if (!activatedBusinessId) {
     return { ok: true, alreadyActive: true, emailSent: false };
+  }
+
+  const activatedBusiness = await queryOne<{ slug: string }>(
+    `select slug from businesses where id = $1`,
+    [activatedBusinessId]
+  );
+  if (activatedBusiness) {
+    invalidateMenuCache(activatedBusiness.slug);
   }
 
   const emailResult = await sendActivationConfirmation({

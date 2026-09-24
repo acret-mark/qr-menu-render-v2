@@ -2,6 +2,7 @@
 
 import { auth } from "@/lib/auth/auth.config";
 import { query, queryOne } from "@/lib/db/client";
+import { invalidateMenuCache } from "@/lib/menu/cache";
 
 export type BusinessProfile = {
   id: string;
@@ -65,8 +66,8 @@ export async function updateBusinessProfile(
     return { ok: false, message: UPDATE_FAILED_MESSAGE };
   }
 
-  const business = await queryOne<{ id: string }>(
-    `select id from businesses where owner_id = $1`,
+  const business = await queryOne<{ id: string; slug: string }>(
+    `select id, slug from businesses where owner_id = $1`,
     [session.user.id]
   );
   if (!business) {
@@ -79,6 +80,7 @@ export async function updateBusinessProfile(
          where id = $5`,
       [updates.name, updates.contactPhone, updates.contactEmail, updates.address, business.id]
     );
+    invalidateMenuCache(business.slug);
     return { ok: true };
   } catch {
     return { ok: false, message: UPDATE_FAILED_MESSAGE };

@@ -1,7 +1,11 @@
+import { unstable_cache } from "next/cache";
 import { query, queryOne } from "@/lib/db/client";
 import { getInitialDisplayLanguage } from "./language";
+import { menuCacheTag } from "./cache";
 import { applyTranslations } from "./translations";
 import type { Business, MenuCategory, MenuItem, Translations, DisplayLanguage } from "./types";
+
+const CACHE_REVALIDATE_SECONDS = 5;
 
 interface BusinessRow {
   id: string;
@@ -16,25 +20,33 @@ interface BusinessRow {
 // Only a business whose status is currently "active" resolves here — pending,
 // suspended, and trial all fall through to null, same as a slug that never
 // existed at all (specs/005-inactive-menu-state FR-002: the customer MUST NOT
-// be able to tell those cases apart). No caching layer (specs/016, deferred).
+// be able to tell those cases apart). Cached and tagged per-slug (specs/016) —
+// a 5s safety-net window, invalidated near-instantly by every owner/admin
+// write path that touches this business (src/lib/menu/cache.ts).
 export async function getBusinessBySlug(slug: string): Promise<Business | null> {
-  const row = await queryOne<BusinessRow>(
-    `select id, name, slug, logo_url, address, plan, source_language
-     from businesses
-     where slug = $1 and status = 'active'`,
-    [slug]
-  );
-  if (!row) return null;
+  return unstable_cache(
+    async () => {
+      const row = await queryOne<BusinessRow>(
+        `select id, name, slug, logo_url, address, plan, source_language
+         from businesses
+         where slug = $1 and status = 'active'`,
+        [slug]
+      );
+      if (!row) return null;
 
-  return {
-    id: row.id,
-    name: row.name,
-    slug: row.slug,
-    logoUrl: row.logo_url,
-    address: row.address,
-    plan: row.plan,
-    sourceLanguage: row.source_language,
-  };
+      return {
+        id: row.id,
+        name: row.name,
+        slug: row.slug,
+        logoUrl: row.logo_url,
+        address: row.address,
+        plan: row.plan,
+        sourceLanguage: row.source_language,
+      };
+    },
+    ["business-by-slug", slug],
+    { tags: [menuCacheTag(slug)], revalidate: CACHE_REVALIDATE_SECONDS }
+  )();
 }
 
 interface CategoryRow {
@@ -60,45 +72,52 @@ interface ItemRow {
 // already tolerates harmlessly. Sort order is `sort_order` only — never
 // reordered by best-seller status, for any plan (specs/001-sold-out-best-
 // seller FR-004: badge-only, no reordering, until Pro pin-to-top is
-// separately specified).
-export async function getMenuData(businessId: string): Promise<MenuCategory[]> {
-  const [categories, items] = await Promise.all([
-    query<CategoryRow>(
-      `select id, name, sort_order from categories where business_id = $1 order by sort_order asc`,
-      [businessId]
-    ),
-    query<ItemRow>(
-      `select id, category_id, name, description, price, photo_url, is_sold_out, is_best_seller, sort_order
-       from items
-       where business_id = $1 and is_displayed = true
-       order by sort_order asc`,
-      [businessId]
-    ),
-  ]);
+// separately specified). `slug` is used only for the cache tag below — the
+// query itself is still keyed by `businessId`, its real parameter.
+export async function getMenuData(businessId: string, slug: string): Promise<MenuCategory[]> {
+  return unstable_cache(
+    async () => {
+      const [categories, items] = await Promise.all([
+        query<CategoryRow>(
+          `select id, name, sort_order from categories where business_id = $1 order by sort_order asc`,
+          [businessId]
+        ),
+        query<ItemRow>(
+          `select id, category_id, name, description, price, photo_url, is_sold_out, is_best_seller, sort_order
+           from items
+           where business_id = $1 and is_displayed = true
+           order by sort_order asc`,
+          [businessId]
+        ),
+      ]);
 
-  const itemsByCategory = new Map<string, MenuItem[]>();
-  for (const item of items) {
-    const list = itemsByCategory.get(item.category_id) ?? [];
-    list.push({
-      id: item.id,
-      name: item.name,
-      description: item.description,
-      price: Number(item.price),
-      photoUrl: item.photo_url,
-      isSoldOut: item.is_sold_out,
-      isBestSeller: item.is_best_seller,
-      ingredients: [],
-    });
-    itemsByCategory.set(item.category_id, list);
-  }
+      const itemsByCategory = new Map<string, MenuItem[]>();
+      for (const item of items) {
+        const list = itemsByCategory.get(item.category_id) ?? [];
+        list.push({
+          id: item.id,
+          name: item.name,
+          description: item.description,
+          price: Number(item.price),
+          photoUrl: item.photo_url,
+          isSoldOut: item.is_sold_out,
+          isBestSeller: item.is_best_seller,
+          ingredients: [],
+        });
+        itemsByCategory.set(item.category_id, list);
+      }
 
-  return categories
-    .map((category) => ({
-      id: category.id,
-      name: category.name,
-      items: itemsByCategory.get(category.id) ?? [],
-    }))
-    .filter((category) => category.items.length > 0);
+      return categories
+        .map((category) => ({
+          id: category.id,
+          name: category.name,
+          items: itemsByCategory.get(category.id) ?? [],
+        }))
+        .filter((category) => category.items.length > 0);
+    },
+    ["menu-data", businessId],
+    { tags: [menuCacheTag(slug)], revalidate: CACHE_REVALIDATE_SECONDS }
+  )();
 }
 
 interface CategoryTranslationRow {
@@ -113,35 +132,44 @@ interface ItemTranslationRow {
 
 // Ingredient translations are never queried — ingredients are always []
 // (specs/030, deferred), so ingredientNames is always empty; the shape is
-// kept for applyTranslations' type.
+// kept for applyTranslations' type. `slug` is used only for the cache tag —
+// a language switch invalidates alongside the rest of the business's menu
+// (one shared tag, specs/016), not a separate per-language tag.
 export async function getTranslations(
   businessId: string,
-  language: DisplayLanguage
+  language: DisplayLanguage,
+  slug: string
 ): Promise<Translations> {
-  const [categoryRows, itemRows] = await Promise.all([
-    query<CategoryTranslationRow>(
-      `select category_id, translated_name from category_translations
-       where business_id = $1 and language_code = $2`,
-      [businessId, language]
-    ),
-    query<ItemTranslationRow>(
-      `select item_id, translated_description from item_translations
-       where business_id = $1 and language_code = $2`,
-      [businessId, language]
-    ),
-  ]);
+  return unstable_cache(
+    async () => {
+      const [categoryRows, itemRows] = await Promise.all([
+        query<CategoryTranslationRow>(
+          `select category_id, translated_name from category_translations
+           where business_id = $1 and language_code = $2`,
+          [businessId, language]
+        ),
+        query<ItemTranslationRow>(
+          `select item_id, translated_description from item_translations
+           where business_id = $1 and language_code = $2`,
+          [businessId, language]
+        ),
+      ]);
 
-  const categoryNames: Record<string, string> = {};
-  for (const row of categoryRows) {
-    if (row.translated_name) categoryNames[row.category_id] = row.translated_name;
-  }
+      const categoryNames: Record<string, string> = {};
+      for (const row of categoryRows) {
+        if (row.translated_name) categoryNames[row.category_id] = row.translated_name;
+      }
 
-  const itemDescriptions: Record<string, string> = {};
-  for (const row of itemRows) {
-    if (row.translated_description) itemDescriptions[row.item_id] = row.translated_description;
-  }
+      const itemDescriptions: Record<string, string> = {};
+      for (const row of itemRows) {
+        if (row.translated_description) itemDescriptions[row.item_id] = row.translated_description;
+      }
 
-  return { categoryNames, itemDescriptions, ingredientNames: {} };
+      return { categoryNames, itemDescriptions, ingredientNames: {} };
+    },
+    ["menu-translations", businessId, language],
+    { tags: [menuCacheTag(slug)], revalidate: CACHE_REVALIDATE_SECONDS }
+  )();
 }
 
 export async function loadDisplayCategories(business: Business): Promise<{
@@ -150,7 +178,7 @@ export async function loadDisplayCategories(business: Business): Promise<{
   initialCategories: MenuCategory[];
   needsClientProbe: boolean;
 }> {
-  const sourceCategories = await getMenuData(business.id);
+  const sourceCategories = await getMenuData(business.id, business.slug);
 
   let initialLanguage: DisplayLanguage = "en";
   let initialCategories = sourceCategories;
@@ -161,7 +189,7 @@ export async function loadDisplayCategories(business: Business): Promise<{
     initialLanguage = resolved.language;
     needsClientProbe = resolved.needsClientProbe;
     if (!resolved.skipTranslation && initialLanguage !== business.sourceLanguage) {
-      const translations = await getTranslations(business.id, initialLanguage);
+      const translations = await getTranslations(business.id, initialLanguage, business.slug);
       initialCategories = applyTranslations(sourceCategories, translations);
     }
   }

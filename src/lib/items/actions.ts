@@ -3,6 +3,7 @@
 import { auth } from "@/lib/auth/auth.config";
 import { query, queryOne } from "@/lib/db/client";
 import { getOwnerBusiness } from "@/lib/auth/login";
+import { invalidateMenuCache } from "@/lib/menu/cache";
 import { DISPLAY_LANGUAGES, type DisplayLanguage } from "@/lib/menu/types";
 import { hashItemDescription } from "./hash";
 import { translateText } from "@/lib/deepl/client";
@@ -39,6 +40,8 @@ export async function setItemSoldOut(input: SetItemSoldOutInput): Promise<SetIte
     input.id,
     business.id,
   ]);
+
+  invalidateMenuCache(business.slug);
 
   return { ok: true };
 }
@@ -140,8 +143,8 @@ export async function saveItem(input: SaveItemInput): Promise<SaveItemResult> {
     return { ok: false, reason: "not-authenticated" };
   }
 
-  const business = await queryOne<{ id: string; source_language: string }>(
-    `select id, source_language from businesses where owner_id = $1`,
+  const business = await queryOne<{ id: string; slug: string; source_language: string }>(
+    `select id, slug, source_language from businesses where owner_id = $1`,
     [session.user.id]
   );
   if (!business) {
@@ -254,6 +257,8 @@ export async function saveItem(input: SaveItemInput): Promise<SaveItemResult> {
 
   await applyItemDescriptionTranslations(itemId, business.id, description, business.source_language);
 
+  invalidateMenuCache(business.slug);
+
   return { ok: true, id: itemId };
 }
 
@@ -271,6 +276,8 @@ export async function deleteItem(input: { id: string }): Promise<DeleteItemResul
   }
 
   await query(`delete from items where id = $1 and business_id = $2`, [input.id, business.id]);
+
+  invalidateMenuCache(business.slug);
 
   return { ok: true };
 }

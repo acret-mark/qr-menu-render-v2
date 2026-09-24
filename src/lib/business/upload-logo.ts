@@ -5,10 +5,7 @@ import { query } from "@/lib/db/client";
 import { getBusinessProfile } from "@/lib/business/profile";
 import { validateLogoFile } from "@/lib/business/logo-validation";
 import { uploadImage } from "@/lib/cloudinary/client";
-
-// Cache invalidation (016-menu-data-caching) omitted — not yet replanned on
-// this stack; nothing to invalidate until that spec lands (see e.g.
-// 011-activate-subscription's identical note).
+import { invalidateMenuCache } from "@/lib/menu/cache";
 
 export type UploadLogoResult = { ok: true; logoUrl: string } | { ok: false; message: string };
 
@@ -45,6 +42,8 @@ export async function uploadBusinessLogo(formData: FormData): Promise<UploadLogo
   } catch {
     return { ok: false, message: "The logo uploaded, but we couldn't save it. Please try again." };
   }
+
+  invalidateMenuCache(profile.slug);
 
   return { ok: true, logoUrl: secureUrl };
 }

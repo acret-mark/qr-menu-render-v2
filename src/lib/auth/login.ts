@@ -4,6 +4,7 @@ export type BusinessStatus = "pending" | "trial" | "active" | "suspended";
 
 export type OwnerBusiness = {
   id: string;
+  slug: string;
   status: BusinessStatus;
   name: string;
 };
@@ -31,7 +32,7 @@ export function isKnownBusinessStatus(status: string): status is BusinessStatus 
  */
 export async function getOwnerBusiness(ownerId: string): Promise<OwnerBusiness | null> {
   const row = await queryOne<OwnerBusiness>(
-    `select id, status, name from businesses where owner_id = $1`,
+    `select id, slug, status, name from businesses where owner_id = $1`,
     [ownerId]
   );
   return row;
