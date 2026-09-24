@@ -67,17 +67,21 @@ interface ItemRow {
   sort_order: number;
 }
 
-// Ingredients are omitted entirely (specs/030-menu-item-ingredients,
-// deferred) — every item's `ingredients` is always `[]`, which the type
-// already tolerates harmlessly. Sort order is `sort_order` only — never
-// reordered by best-seller status, for any plan (specs/001-sold-out-best-
-// seller FR-004: badge-only, no reordering, until Pro pin-to-top is
-// separately specified). `slug` is used only for the cache tag below — the
-// query itself is still keyed by `businessId`, its real parameter.
+interface ItemIngredientRow {
+  item_id: string;
+  id: string;
+  name: string;
+}
+
+// Sort order is `sort_order` only — never reordered by best-seller status,
+// for any plan (specs/001-sold-out-best-seller FR-004: badge-only, no
+// reordering, until Pro pin-to-top is separately specified). `slug` is used
+// only for the cache tag below — the query itself is still keyed by
+// `businessId`, its real parameter.
 export async function getMenuData(businessId: string, slug: string): Promise<MenuCategory[]> {
   return unstable_cache(
     async () => {
-      const [categories, items] = await Promise.all([
+      const [categories, items, itemIngredientRows] = await Promise.all([
         query<CategoryRow>(
           `select id, name, sort_order from categories where business_id = $1 order by sort_order asc`,
           [businessId]
@@ -89,7 +93,24 @@ export async function getMenuData(businessId: string, slug: string): Promise<Men
            order by sort_order asc`,
           [businessId]
         ),
+        // Attach order, per FR-011 (030-menu-item-ingredients) — this query
+        // is ordered so the grouping below preserves it without re-sorting.
+        query<ItemIngredientRow>(
+          `select ii.item_id, i.id, i.name
+             from item_ingredients ii
+             join ingredients i on i.id = ii.ingredient_id
+             where ii.business_id = $1
+             order by ii.created_at asc`,
+          [businessId]
+        ),
       ]);
+
+      const ingredientsByItem = new Map<string, { id: string; name: string }[]>();
+      for (const row of itemIngredientRows) {
+        const list = ingredientsByItem.get(row.item_id) ?? [];
+        list.push({ id: row.id, name: row.name });
+        ingredientsByItem.set(row.item_id, list);
+      }
 
       const itemsByCategory = new Map<string, MenuItem[]>();
       for (const item of items) {
@@ -102,7 +123,7 @@ export async function getMenuData(businessId: string, slug: string): Promise<Men
           photoUrl: item.photo_url,
           isSoldOut: item.is_sold_out,
           isBestSeller: item.is_best_seller,
-          ingredients: [],
+          ingredients: ingredientsByItem.get(item.id) ?? [],
         });
         itemsByCategory.set(item.category_id, list);
       }
@@ -130,11 +151,14 @@ interface ItemTranslationRow {
   translated_description: string | null;
 }
 
-// Ingredient translations are never queried — ingredients are always []
-// (specs/030, deferred), so ingredientNames is always empty; the shape is
-// kept for applyTranslations' type. `slug` is used only for the cache tag —
-// a language switch invalidates alongside the rest of the business's menu
-// (one shared tag, specs/016), not a separate per-language tag.
+interface IngredientTranslationRow {
+  ingredient_id: string;
+  translated_name: string | null;
+}
+
+// `slug` is used only for the cache tag — a language switch invalidates
+// alongside the rest of the business's menu (one shared tag, specs/016), not
+// a separate per-language tag.
 export async function getTranslations(
   businessId: string,
   language: DisplayLanguage,
@@ -142,7 +166,7 @@ export async function getTranslations(
 ): Promise<Translations> {
   return unstable_cache(
     async () => {
-      const [categoryRows, itemRows] = await Promise.all([
+      const [categoryRows, itemRows, ingredientRows] = await Promise.all([
         query<CategoryTranslationRow>(
           `select category_id, translated_name from category_translations
            where business_id = $1 and language_code = $2`,
@@ -150,6 +174,11 @@ export async function getTranslations(
         ),
         query<ItemTranslationRow>(
           `select item_id, translated_description from item_translations
+           where business_id = $1 and language_code = $2`,
+          [businessId, language]
+        ),
+        query<IngredientTranslationRow>(
+          `select ingredient_id, translated_name from ingredient_translations
            where business_id = $1 and language_code = $2`,
           [businessId, language]
         ),
@@ -165,7 +194,12 @@ export async function getTranslations(
         if (row.translated_description) itemDescriptions[row.item_id] = row.translated_description;
       }
 
-      return { categoryNames, itemDescriptions, ingredientNames: {} };
+      const ingredientNames: Record<string, string> = {};
+      for (const row of ingredientRows) {
+        if (row.translated_name) ingredientNames[row.ingredient_id] = row.translated_name;
+      }
+
+      return { categoryNames, itemDescriptions, ingredientNames };
     },
     ["menu-translations", businessId, language],
     { tags: [menuCacheTag(slug)], revalidate: CACHE_REVALIDATE_SECONDS }

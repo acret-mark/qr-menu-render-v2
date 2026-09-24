@@ -5,7 +5,7 @@ import { query, queryOne } from "@/lib/db/client";
 import { getOwnerBusiness } from "@/lib/auth/login";
 import { invalidateMenuCache } from "@/lib/menu/cache";
 import { DISPLAY_LANGUAGES, type DisplayLanguage } from "@/lib/menu/types";
-import { hashItemDescription } from "./hash";
+import { hashIngredientName, hashItemDescription } from "./hash";
 import { translateText } from "@/lib/deepl/client";
 import { uploadImage } from "@/lib/cloudinary/client";
 import { validateLogoFile } from "@/lib/business/logo-validation";
@@ -14,8 +14,7 @@ import { checkAndIncrementDailyLimit } from "@/lib/ai-description/rate-limit";
 
 // Subscription-lockout check (specs/032-unified-subscription-lifecycle) not
 // yet replanned/implemented on this stack — see categories/actions.ts's
-// identical note. Ingredients (specs/030-menu-item-ingredients) likewise
-// deferred — saveItem() here has no `ingredients` field.
+// identical note.
 
 export type SetItemSoldOutInput = {
   id: string;
@@ -104,6 +103,146 @@ async function applyItemDescriptionTranslations(
   return requiredLanguages.some((lang) => finalByLanguage.get(lang) !== currentHash);
 }
 
+/**
+ * Ingredients extension (030-menu-item-ingredients): resolves each `{ name }`
+ * entry to an existing or newly-created `ingredients` row (case-insensitive
+ * reuse, FR-005), then reconciles `item_ingredients` as a full diff against
+ * the item's current rows. A bad `{ id }` (not owned by this business) is
+ * dropped, never failing the item's own save.
+ */
+async function reconcileItemIngredients(
+  itemId: string,
+  businessId: string,
+  ingredients: Array<{ id: string } | { name: string }>
+): Promise<{ id: string; name: string }[]> {
+  const existingIngredients = await query<{ id: string; name: string }>(
+    `select id, name from ingredients where business_id = $1`,
+    [businessId]
+  );
+
+  const byLowerName = new Map(existingIngredients.map((row) => [row.name.toLowerCase(), row.id]));
+  const nameById = new Map(existingIngredients.map((row) => [row.id, row.name]));
+  const validIds = new Set(existingIngredients.map((row) => row.id));
+
+  const resolvedIds = new Set<string>();
+
+  for (const entry of ingredients) {
+    if ("id" in entry) {
+      if (validIds.has(entry.id)) resolvedIds.add(entry.id);
+      continue;
+    }
+
+    const name = entry.name.trim();
+    if (!name) continue;
+
+    const existingId = byLowerName.get(name.toLowerCase());
+    if (existingId) {
+      resolvedIds.add(existingId);
+      continue;
+    }
+
+    try {
+      const created = await queryOne<{ id: string }>(
+        `insert into ingredients (business_id, name) values ($1, $2) returning id`,
+        [businessId, name]
+      );
+      if (!created) continue;
+      byLowerName.set(name.toLowerCase(), created.id);
+      nameById.set(created.id, name);
+      resolvedIds.add(created.id);
+    } catch (err) {
+      console.error(`saveItem: failed to create ingredient "${name}" for business ${businessId}`, err);
+    }
+  }
+
+  const currentRows = await query<{ ingredient_id: string }>(
+    `select ingredient_id from item_ingredients where item_id = $1`,
+    [itemId]
+  );
+  const currentIds = new Set(currentRows.map((row) => row.ingredient_id));
+
+  const toRemove = [...currentIds].filter((ingredientId) => !resolvedIds.has(ingredientId));
+  const toAdd = [...resolvedIds].filter((ingredientId) => !currentIds.has(ingredientId));
+
+  if (toRemove.length) {
+    await query(
+      `delete from item_ingredients where item_id = $1 and ingredient_id = any($2::uuid[])`,
+      [itemId, toRemove]
+    );
+  }
+
+  for (const ingredientId of toAdd) {
+    await query(
+      `insert into item_ingredients (item_id, ingredient_id, business_id) values ($1, $2, $3)`,
+      [itemId, ingredientId, businessId]
+    );
+  }
+
+  return [...resolvedIds].map((id) => ({ id, name: nameById.get(id) ?? "" }));
+}
+
+/**
+ * Ingredient translate-on-save (FR-014, ingredient-translation follow-on):
+ * a direct port of applyItemDescriptionTranslations()'s pattern onto
+ * ingredient_translations, run once per ingredient currently attached to the
+ * saved item. Ingredients are a shared per-business vocabulary (like
+ * categories, not per-item text), so re-running this for an already-
+ * translated, unchanged ingredient is a cheap no-op via the same
+ * source_hash skip used elsewhere.
+ */
+async function applyIngredientTranslations(
+  businessId: string,
+  ingredients: { id: string; name: string }[],
+  sourceLanguage: string
+): Promise<void> {
+  const requiredLanguages = DISPLAY_LANGUAGES.filter((lang) => lang !== sourceLanguage);
+  if (!requiredLanguages.length) return;
+
+  await Promise.allSettled(
+    ingredients
+      .filter((ingredient) => ingredient.name.trim())
+      .map(async (ingredient) => {
+        const currentHash = hashIngredientName(ingredient.name);
+
+        const existingRows = await query<{ language_code: DisplayLanguage; source_hash: string }>(
+          `select language_code, source_hash from ingredient_translations where ingredient_id = $1`,
+          [ingredient.id]
+        );
+        const existingByLanguage = new Map(
+          existingRows.map((row) => [row.language_code, row.source_hash])
+        );
+
+        const staleLanguages = requiredLanguages.filter(
+          (lang) => existingByLanguage.get(lang) !== currentHash
+        );
+
+        await Promise.allSettled(
+          staleLanguages.map(async (lang) => {
+            const result = await translateText(ingredient.name, lang);
+            if (!result.ok) {
+              console.error(`saveItem: translation failed for ingredient ${ingredient.id} -> ${lang}`);
+              return;
+            }
+
+            try {
+              await query(
+                `insert into ingredient_translations (ingredient_id, business_id, language_code, translated_name, source_hash)
+                   values ($1, $2, $3, $4, $5)
+                   on conflict (ingredient_id, language_code)
+                   do update set translated_name = excluded.translated_name,
+                                  source_hash = excluded.source_hash,
+                                  translated_at = now()`,
+                [ingredient.id, businessId, lang, result.text, currentHash]
+              );
+            } catch (err) {
+              console.error(`saveItem: upsert failed for ingredient ${ingredient.id} -> ${lang}`, err);
+            }
+          })
+        );
+      })
+  );
+}
+
 export type SaveItemInput = {
   id?: string;
   name: string;
@@ -115,6 +254,7 @@ export type SaveItemInput = {
   isSoldOut: boolean;
   isBestSeller: boolean;
   acceptedAiDraft?: { keywords: string[] };
+  ingredients: Array<{ id: string } | { name: string }>;
 };
 
 export type SaveItemResult = { ok: true; id: string } | { ok: false; reason: string };
@@ -254,6 +394,10 @@ export async function saveItem(input: SaveItemInput): Promise<SaveItemResult> {
     }
     itemId = created.id;
   }
+
+  const resolvedIngredients = await reconcileItemIngredients(itemId, business.id, input.ingredients);
+
+  await applyIngredientTranslations(business.id, resolvedIngredients, business.source_language);
 
   await applyItemDescriptionTranslations(itemId, business.id, description, business.source_language);
 

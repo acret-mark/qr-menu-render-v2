@@ -2,7 +2,14 @@ import { query, queryOne } from "@/lib/db/client";
 import { getOwnerBusiness } from "@/lib/auth/login";
 import { DISPLAY_LANGUAGES, type DisplayLanguage } from "@/lib/menu/types";
 import { hashItemDescription } from "./hash";
-import type { CategoryOption, ItemFormData, ItemFormItem, OwnerMenuCategory, OwnerMenuItem } from "./types";
+import type {
+  CategoryOption,
+  IngredientOption,
+  ItemFormData,
+  ItemFormItem,
+  OwnerMenuCategory,
+  OwnerMenuItem,
+} from "./types";
 
 export async function getMenuForOwner(
   ownerId: string
@@ -90,7 +97,7 @@ export async function getMenuForOwner(
 export async function getItemFormData(ownerId: string, itemId?: string): Promise<ItemFormData> {
   const business = await getOwnerBusiness(ownerId);
   if (!business) {
-    return { categories: [], item: null };
+    return { categories: [], businessIngredients: [], item: null };
   }
 
   const categoryRows = await query<{ id: string; name: string }>(
@@ -99,8 +106,17 @@ export async function getItemFormData(ownerId: string, itemId?: string): Promise
   );
   const categories: CategoryOption[] = categoryRows.map((row) => ({ id: row.id, name: row.name }));
 
+  const ingredientRows = await query<{ id: string; name: string }>(
+    `select id, name from ingredients where business_id = $1 order by name asc`,
+    [business.id]
+  );
+  const businessIngredients: IngredientOption[] = ingredientRows.map((row) => ({
+    id: row.id,
+    name: row.name,
+  }));
+
   if (!itemId) {
-    return { categories, item: null };
+    return { categories, businessIngredients, item: null };
   }
 
   const itemRow = await queryOne<{
@@ -123,8 +139,22 @@ export async function getItemFormData(ownerId: string, itemId?: string): Promise
   );
 
   if (!itemRow) {
-    return { categories, item: null };
+    return { categories, businessIngredients, item: null };
   }
+
+  // Attach order, per FR-011 (030-menu-item-ingredients).
+  const itemIngredientRows = await query<{ id: string; name: string }>(
+    `select i.id, i.name
+       from item_ingredients ii
+       join ingredients i on i.id = ii.ingredient_id
+       where ii.item_id = $1
+       order by ii.created_at asc`,
+    [itemRow.id]
+  );
+  const ingredients: IngredientOption[] = itemIngredientRows.map((row) => ({
+    id: row.id,
+    name: row.name,
+  }));
 
   const item: ItemFormItem = {
     id: itemRow.id,
@@ -138,7 +168,8 @@ export async function getItemFormData(ownerId: string, itemId?: string): Promise
     isBestSeller: itemRow.is_best_seller,
     descriptionSource: itemRow.description_source,
     aiKeywords: itemRow.ai_keywords,
+    ingredients,
   };
 
-  return { categories, item };
+  return { categories, businessIngredients, item };
 }
