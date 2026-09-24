@@ -8,7 +8,7 @@ import {
 } from "@/lib/admin/queries";
 import { StatCard } from "@/components/admin/stat-card";
 import { Badge } from "@/components/admin/badge";
-import { StatusBadge } from "@/components/admin/status-badge";
+import { StatusPlanForm } from "@/components/admin/status-plan-form";
 import { BusinessDetailTabs } from "@/components/admin/business-detail-tabs";
 import { formatAdminDate, formatPaymentMethod } from "@/lib/admin/format";
 import type { AdminMenuCategory, AdminSubscriptionRecord, SubscriptionStatus } from "@/lib/admin/types";
@@ -177,18 +177,19 @@ export default async function BusinessDetailPage({
           <h1 className="font-heading text-2xl font-semibold">{business.name}</h1>
           <p className="text-sm text-muted-foreground">{business.slug}</p>
         </div>
-        {isLocked ? (
+        {isLocked && (
           <span className="inline-flex items-center rounded-full bg-destructive/15 px-2.5 py-0.5 text-xs font-medium text-destructive">
             Expired
           </span>
-        ) : (
-          <StatusBadge status={business.status} />
         )}
-        {/*
-          Editable status/plan override (StatusPlanForm) is
-          031-admin-status-plan-override's scope, not yet implemented —
-          read-only badge above stands in until then.
-        */}
+        <div className="ml-auto">
+          <StatusPlanForm
+            businessId={business.id}
+            slug={business.slug}
+            currentStatus={business.status}
+            currentPlan={business.plan}
+          />
+        </div>
       </div>
 
       {(hasPendingSubscription || hasOpenTicket) && (

@@ -4,7 +4,7 @@ import { auth } from "@/lib/auth/auth.config";
 import { query, queryOne } from "@/lib/db/client";
 import { invalidateMenuCache } from "@/lib/menu/cache";
 import { sendActivationConfirmation } from "@/lib/email/send-activation-confirmation";
-import type { PlanType, TicketStatus } from "./types";
+import type { BusinessStatus, PlanType, TicketStatus } from "./types";
 
 export type ActivateSubscriptionInput = {
   subscriptionId: string;
@@ -99,6 +99,53 @@ export async function rejectSubscription(input: {
   } catch (err) {
     return { ok: false, reason: err instanceof Error ? err.message : "reject-failed" };
   }
+}
+
+export type SetBusinessStatusAndPlanInput = {
+  businessId: string;
+  status: BusinessStatus;
+  plan: PlanType;
+  slug: string;
+};
+
+export type SetBusinessStatusAndPlanResult = { ok: true } | { ok: false; reason: string };
+
+/**
+ * General-purpose admin override, independent of activateSubscription()
+ * (specs/031-admin-status-plan-override) — sets status and plan together on
+ * any business, with no payment proof involved. Per FR-002, this is a direct
+ * single-table edit of businesses.status/businesses.plan only: it never
+ * creates, requires, updates, or deletes any subscriptions row, and never
+ * touches trial_ends_at (FR-007) — unlike qr-menu-dev's current shipped
+ * version of this action, which was later extended for specs/032-unified-
+ * subscription-lifecycle (T012) to also call grant_trial_subscription()/
+ * grant_active_subscription() RPCs so a trial/active grant gets a real
+ * subscriptions row for that spec's expiry cron to key off. That extension
+ * is 032's own scope, not yet reached — this build implements 031's own
+ * literal FR-002 instead, matching the deferral discipline used throughout
+ * this project's replan (see plan.md).
+ */
+export async function setBusinessStatusAndPlan(
+  input: SetBusinessStatusAndPlanInput
+): Promise<SetBusinessStatusAndPlanResult> {
+  const session = await auth();
+  if (!session?.user?.isAdmin) {
+    return { ok: false, reason: "not-authenticated" };
+  }
+
+  try {
+    await query(`update businesses set status = $1, plan = $2 where id = $3`, [
+      input.status,
+      input.plan,
+      input.businessId,
+    ]);
+  } catch (err) {
+    return { ok: false, reason: err instanceof Error ? err.message : "update-failed" };
+  }
+
+  invalidateMenuCache(input.slug);
+
+  return { ok: true };
 }
 
 export type ReplyToSupportTicketResult = { ok: true } | { ok: false; reason: "empty-reply" | string };
