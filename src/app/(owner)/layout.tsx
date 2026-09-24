@@ -8,6 +8,7 @@ import {
   ERROR_PATH,
 } from "@/lib/auth/login";
 import { OwnerShell } from "@/components/dashboard/owner-shell";
+import { getSubscriptionAccess } from "@/lib/subscription/access-gate";
 
 /**
  * requireOwnerBusiness() guard (012-owner-login,
@@ -30,8 +31,14 @@ export default async function OwnerLayout({ children }: { children: React.ReactN
     redirect(SUSPENDED_PATH);
   }
 
+  // Only meaningful for trial/active — a still-pending business has never
+  // had lifecycle access to lose (spec FR-014 concerns the locked state
+  // that follows an elapsed grace period, not first-activation waiting).
+  const locked =
+    business.status !== "pending" && !(await getSubscriptionAccess(business.id)).full;
+
   return (
-    <OwnerShell status={business.status} businessName={business.name}>
+    <OwnerShell status={business.status} businessName={business.name} locked={locked}>
       {children}
     </OwnerShell>
   );

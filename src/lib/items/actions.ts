@@ -4,6 +4,7 @@ import { auth } from "@/lib/auth/auth.config";
 import { query, queryOne } from "@/lib/db/client";
 import { getOwnerBusiness } from "@/lib/auth/login";
 import { invalidateMenuCache } from "@/lib/menu/cache";
+import { getSubscriptionAccess } from "@/lib/subscription/access-gate";
 import { DISPLAY_LANGUAGES, type DisplayLanguage } from "@/lib/menu/types";
 import { hashIngredientName, hashItemDescription } from "./hash";
 import { translateText } from "@/lib/deepl/client";
@@ -12,9 +13,9 @@ import { validateLogoFile } from "@/lib/business/logo-validation";
 import { generateDescription } from "@/lib/ai-description/client";
 import { checkAndIncrementDailyLimit } from "@/lib/ai-description/rate-limit";
 
-// Subscription-lockout check (specs/032-unified-subscription-lifecycle) not
-// yet replanned/implemented on this stack — see categories/actions.ts's
-// identical note.
+// Reject reason shared by every action below when the caller's subscription
+// is locked (spec FR-012, specs/032-unified-subscription-lifecycle).
+const LOCKED_REASON = "subscription-locked";
 
 export type SetItemSoldOutInput = {
   id: string;
@@ -32,6 +33,11 @@ export async function setItemSoldOut(input: SetItemSoldOutInput): Promise<SetIte
   const business = await getOwnerBusiness(session.user.id);
   if (!business) {
     return { ok: false, reason: "no-business" };
+  }
+
+  const access = await getSubscriptionAccess(business.id);
+  if (!access.full) {
+    return { ok: false, reason: LOCKED_REASON };
   }
 
   await query(`update items set is_sold_out = $1 where id = $2 and business_id = $3`, [
@@ -291,6 +297,11 @@ export async function saveItem(input: SaveItemInput): Promise<SaveItemResult> {
     return { ok: false, reason: "no-business" };
   }
 
+  const access = await getSubscriptionAccess(business.id);
+  if (!access.full) {
+    return { ok: false, reason: LOCKED_REASON };
+  }
+
   const category = await queryOne<{ id: string }>(
     `select id from categories where id = $1 and business_id = $2`,
     [input.categoryId, business.id]
@@ -419,6 +430,11 @@ export async function deleteItem(input: { id: string }): Promise<DeleteItemResul
     return { ok: false, reason: "no-business" };
   }
 
+  const access = await getSubscriptionAccess(business.id);
+  if (!access.full) {
+    return { ok: false, reason: LOCKED_REASON };
+  }
+
   await query(`delete from items where id = $1 and business_id = $2`, [input.id, business.id]);
 
   invalidateMenuCache(business.slug);
@@ -437,6 +453,11 @@ export async function uploadItemPhoto(formData: FormData): Promise<UploadItemPho
   const business = await getOwnerBusiness(session.user.id);
   if (!business) {
     return { ok: false, message: "Couldn't find your business. Please try again." };
+  }
+
+  const access = await getSubscriptionAccess(business.id);
+  if (!access.full) {
+    return { ok: false, message: "Your subscription has expired. Renew to keep editing your menu." };
   }
 
   const file = formData.get("file");
@@ -478,6 +499,11 @@ export async function generateItemDescription(
 
   const business = await getOwnerBusiness(session.user.id);
   if (!business) {
+    return { ok: false, reason: "generation-failed" };
+  }
+
+  const access = await getSubscriptionAccess(business.id);
+  if (!access.full) {
     return { ok: false, reason: "generation-failed" };
   }
 

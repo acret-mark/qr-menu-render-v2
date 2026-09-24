@@ -3,16 +3,15 @@
 import { auth } from "@/lib/auth/auth.config";
 import { query, queryOne } from "@/lib/db/client";
 import { invalidateMenuCache } from "@/lib/menu/cache";
+import { getSubscriptionAccess } from "@/lib/subscription/access-gate";
 import { DISPLAY_LANGUAGES, type DisplayLanguage, type SourceLanguage } from "@/lib/menu/types";
 import { hashCategoryName } from "./hash";
 import { translateText } from "@/lib/deepl/client";
 import type { OwnerCategory } from "./types";
 
-// Subscription-lockout check (specs/032-unified-subscription-lifecycle,
-// access-gate.ts) is not yet replanned/implemented on this stack — every
-// action below is unconditionally available to any owner with a business,
-// same as this feature's own spec (017-category-manager) originally
-// specified before that later amendment. Will be added when 032 lands.
+// Reject reason shared by every action below when the caller's subscription
+// is locked (spec FR-012, specs/032-unified-subscription-lifecycle).
+const LOCKED_REASON = "subscription-locked";
 
 export type SaveCategoryInput = {
   id?: string;
@@ -103,6 +102,11 @@ export async function saveCategory(input: SaveCategoryInput): Promise<SaveCatego
     return { ok: false, reason: "no-business" };
   }
 
+  const access = await getSubscriptionAccess(business.id);
+  if (!access.full) {
+    return { ok: false, reason: LOCKED_REASON };
+  }
+
   if (input.id) {
     const data = await queryOne<{ id: string; name: string; sort_order: number }>(
       `update categories set name = $1 where id = $2 and business_id = $3
@@ -190,6 +194,11 @@ export async function deleteCategory(input: DeleteCategoryInput): Promise<Delete
     return { ok: false, reason: "no-business" };
   }
 
+  const access = await getSubscriptionAccess(business.id);
+  if (!access.full) {
+    return { ok: false, reason: LOCKED_REASON };
+  }
+
   await query(`delete from categories where id = $1 and business_id = $2`, [input.id, business.id]);
 
   invalidateMenuCache(business.slug);
@@ -218,6 +227,11 @@ export async function reorderCategory(
   );
   if (!business) {
     return { ok: false, reason: "no-business" };
+  }
+
+  const access = await getSubscriptionAccess(business.id);
+  if (!access.full) {
+    return { ok: false, reason: LOCKED_REASON };
   }
 
   const categories = await query<{ id: string; sort_order: number }>(

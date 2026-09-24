@@ -17,19 +17,34 @@ interface BusinessRow {
   source_language: Business["sourceLanguage"];
 }
 
-// Only a business whose status is currently "active" resolves here — pending,
-// suspended, and trial all fall through to null, same as a slug that never
-// existed at all (specs/005-inactive-menu-state FR-002: the customer MUST NOT
-// be able to tell those cases apart). Cached and tagged per-slug (specs/016) —
-// a 5s safety-net window, invalidated near-instantly by every owner/admin
-// write path that touches this business (src/lib/menu/cache.ts).
+// A business whose status is "active" OR "trial" resolves here — pending and
+// suspended fall through to null, same as a slug that never existed at all
+// (specs/005-inactive-menu-state FR-002).
+//
+// Widened to include "trial" here per specs/032-unified-subscription-
+// lifecycle FR-013: a locked (grace-period-elapsed) business's public menu
+// MUST stay fully live — read-only lockout only ever affects the owner
+// dashboard's edit actions (access-gate.ts), never what customers see. Since
+// this stack has no RLS-based visibility policy to separately widen (unlike
+// qr-menu-dev's own "public can read active-or-trial-business rows" RLS
+// migration), this one-line filter is the whole mechanism — flagged as a
+// "revisit later" item in 005's own replan notes, now resolved here. This
+// necessarily also means a still-pending trial that was never locked (a
+// business just granted a fresh trial) has a live public menu from the
+// start, same as an active business — matching FR-012's "a trial grant is
+// not limited to unlocking the owner's own dashboard" framing from
+// specs/029 (retired), carried forward by 032.
+//
+// Cached and tagged per-slug (specs/016) — a 5s safety-net window,
+// invalidated near-instantly by every owner/admin write path that touches
+// this business (src/lib/menu/cache.ts).
 export async function getBusinessBySlug(slug: string): Promise<Business | null> {
   return unstable_cache(
     async () => {
       const row = await queryOne<BusinessRow>(
         `select id, name, slug, logo_url, address, plan, source_language
          from businesses
-         where slug = $1 and status = 'active'`,
+         where slug = $1 and status in ('active', 'trial')`,
         [slug]
       );
       if (!row) return null;

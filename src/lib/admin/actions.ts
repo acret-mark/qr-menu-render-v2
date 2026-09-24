@@ -113,17 +113,28 @@ export type SetBusinessStatusAndPlanResult = { ok: true } | { ok: false; reason:
 /**
  * General-purpose admin override, independent of activateSubscription()
  * (specs/031-admin-status-plan-override) — sets status and plan together on
- * any business, with no payment proof involved. Per FR-002, this is a direct
- * single-table edit of businesses.status/businesses.plan only: it never
- * creates, requires, updates, or deletes any subscriptions row, and never
- * touches trial_ends_at (FR-007) — unlike qr-menu-dev's current shipped
- * version of this action, which was later extended for specs/032-unified-
- * subscription-lifecycle (T012) to also call grant_trial_subscription()/
- * grant_active_subscription() RPCs so a trial/active grant gets a real
- * subscriptions row for that spec's expiry cron to key off. That extension
- * is 032's own scope, not yet reached — this build implements 031's own
- * literal FR-002 instead, matching the deferral discipline used throughout
- * this project's replan (see plan.md).
+ * any business, with no payment proof involved.
+ *
+ * EXTENDED for specs/032-unified-subscription-lifecycle: a trial/active
+ * grant now also needs a real `subscriptions` row, since
+ * `subscriptions.expires_at` is the unified lifecycle's sole expiry source
+ * of truth (spec FR-003) — a business flipped to `status: "trial"` with no
+ * subscription row would never be picked up by the expiry cron and would
+ * sit at full access forever. When `input.status === "trial"`, this calls
+ * `grant_trial_subscription()` (a fixed one-month reference window, same as
+ * specs/029's retired Grant Trial action); `input.plan` is applied in a
+ * second, separate update since that RPC has no plan parameter. When
+ * setting `status: "active"` and there's no currently-live subscription
+ * (none, or the latest one isn't `active`), this calls
+ * `grant_active_subscription()` instead — same admin-override trust model,
+ * for a paid plan — which creates a fresh active row and actually lifts a
+ * lock. When a live subscription already exists (the common case: admin is
+ * just correcting status/plan on an already-healthy business), this falls
+ * through to the plain direct write below instead, so a real, longer-dated
+ * paid subscription is never superseded by a $0 admin-override row. Every
+ * other status (pending/suspended) keeps the plain single-table write — no
+ * subscriptions row is created or required there (specs/031's FR-002).
+ * `trial_ends_at` is never touched by any path here (specs/031 FR-007).
  */
 export async function setBusinessStatusAndPlan(
   input: SetBusinessStatusAndPlanInput
@@ -131,6 +142,51 @@ export async function setBusinessStatusAndPlan(
   const session = await auth();
   if (!session?.user?.isAdmin) {
     return { ok: false, reason: "not-authenticated" };
+  }
+
+  if (input.status === "trial") {
+    // One calendar month from grant time — the same fixed reference window
+    // specs/029's (retired) Grant Trial action established.
+    const expiresAt = new Date();
+    expiresAt.setMonth(expiresAt.getMonth() + 1);
+
+    try {
+      await queryOne(
+        `select * from grant_trial_subscription($1, $2, $3)`,
+        [input.businessId, session.user.id, expiresAt.toISOString()]
+      );
+      await query(`update businesses set plan = $1 where id = $2`, [input.plan, input.businessId]);
+    } catch (err) {
+      return { ok: false, reason: err instanceof Error ? err.message : "grant-trial-failed" };
+    }
+
+    invalidateMenuCache(input.slug);
+    return { ok: true };
+  }
+
+  if (input.status === "active") {
+    const latest = await queryOne<{ status: string }>(
+      `select status from subscriptions where business_id = $1 order by created_at desc limit 1`,
+      [input.businessId]
+    );
+    const hasLiveSubscription = latest?.status === "active";
+
+    if (!hasLiveSubscription) {
+      const expiresAt = new Date();
+      expiresAt.setMonth(expiresAt.getMonth() + 1);
+
+      try {
+        await queryOne(
+          `select * from grant_active_subscription($1, $2, $3, $4)`,
+          [input.businessId, session.user.id, input.plan, expiresAt.toISOString()]
+        );
+      } catch (err) {
+        return { ok: false, reason: err instanceof Error ? err.message : "grant-active-failed" };
+      }
+
+      invalidateMenuCache(input.slug);
+      return { ok: true };
+    }
   }
 
   try {

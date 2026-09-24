@@ -5,6 +5,7 @@ import Link from "next/link";
 import { LogOut } from "lucide-react";
 import { signOutOwner } from "@/lib/auth/logout";
 import { StatusBanner } from "@/components/dashboard/status-banner";
+import { SubscriptionLockedBanner } from "@/components/dashboard/subscription-locked-banner";
 import { OwnerTabBar } from "@/components/dashboard/owner-tab-bar";
 
 // Mirrors admin-shell.tsx's "AC" avatar, derived from the business name
@@ -22,10 +23,18 @@ function getInitials(name: string): string {
 export function OwnerShell({
   status,
   businessName,
+  locked = false,
   children,
 }: {
   status: "pending" | "trial" | "active";
   businessName: string;
+  /**
+   * True when access-gate.ts's getSubscriptionAccess() reports not-full
+   * access (specs/032-unified-subscription-lifecycle). Only meaningful for
+   * trial/active — a still-pending business has never had lifecycle access
+   * to lose.
+   */
+  locked?: boolean;
   children: React.ReactNode;
 }) {
   return (
@@ -58,6 +67,7 @@ export function OwnerShell({
           </div>
         </div>
         {(status === "pending" || status === "trial") && <StatusBanner status={status} />}
+        {status !== "pending" && locked && <SubscriptionLockedBanner />}
         {children}
       </div>
       <OwnerTabBar />
